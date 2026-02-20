@@ -1,0 +1,109 @@
+name: CI - Build, Test & Package (ZIP)
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-windows:
+    name: Build & Package (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore NuGet packages
+        run: dotnet restore
+
+      - name: Install MAUI workloads
+        run: dotnet workload install maui --include-optional
+
+      - name: Build
+        run: dotnet build -c Release
+
+      - name: Run tests
+        run: dotnet test -c Release
+
+      - name: Publish (folder)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts -Force
+          $out = "artifacts/publish"
+          dotnet publish "Dnp.S3.Browser.UI\Dnp.S3.Browser.UI.csproj" `
+            -f net10.0-windows10.0.19041.0 `
+            -c Release `
+            -p:Platform=x64 `
+            -p:RuntimeIdentifier=win10-x64 `
+            -p:PublishSingleFile=false `
+            -o $out
+          # create zip package
+          $zip = "artifacts/package.zip"
+          if (Test-Path $zip) { Remove-Item $zip }
+          Compress-Archive -Path "$out/*" -DestinationPath $zip
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zip-package
+          path: artifacts/package.zip
+
+      - name: Upload publish output
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-output
+          path: artifacts/publish
+
+  release:
+    name: Create GitHub Release
+    runs-on: windows-latest
+    needs: build-windows
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download ZIP artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: zip-package
+          path: artifacts
+
+      - name: Find ZIP file
+        id: find_asset
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem -Path artifacts -Filter *.zip -Recurse | Select-Object -First 1
+          if (-not $file) {
+            Write-Error "ZIP artifact not found"
+            exit 1
+          }
+          Write-Host "Found ZIP: $($file.FullName)"
+          echo "asset_path=$($file.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          body: "Automated release: ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload ZIP to Release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.find_asset.outputs.asset_path }}
+          asset_name: ${{ github.repository }}-${{ github.ref_name }}.zip
+          asset_content_type: application/zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
