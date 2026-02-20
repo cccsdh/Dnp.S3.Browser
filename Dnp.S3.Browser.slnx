@@ -1,8 +1,0 @@
-<Solution>
-  <Project Path="Dnp.S3.Browser.Core/Dnp.S3.Browser.Core.csproj" />
-  <Project Path="Dnp.S3.Browser.Services/Dnp.S3.Browser.Services.csproj" />
-  <Project Path="Dnp.S3.Browser.UI/Dnp.S3.Browser.UI.csproj">
-    <Deploy Solution="Debug|*" />
-  </Project>
-  <Project Path="Dnp.S3.Browser.ViewModels/Dnp.S3.Browser.ViewModels.csproj" />
-</Solution>
