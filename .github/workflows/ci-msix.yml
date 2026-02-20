@@ -21,11 +21,13 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Install MAUI workloads
+        run: |
+          dotnet workload install maui --include-optional
+          dotnet workload restore
+
       - name: Restore NuGet packages
         run: dotnet restore
-
-      - name: Install MAUI workloads
-        run: dotnet workload install maui --include-optional
 
       - name: Build
         run: dotnet build -c Release

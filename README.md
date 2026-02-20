@@ -39,5 +39,4 @@ Notes:
 Download the ZIP artifact from the CI run artifacts or from the GitHub Release assets, extract the folder and run the executable inside (for example `Dnp.S3.Browser.UI.exe`).
 
 Notes about signing and distribution:
-- The ZIP artifact is intended for testing and internal distribution. If you need signed installers or MSIX packages for broad distribution, use a CA-signed certificate and sign the binaries or package in CI before publishing.
-
+- The ZIP artifact is intended for testing and internal distribution. 
