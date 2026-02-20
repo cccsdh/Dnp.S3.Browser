@@ -26,11 +26,11 @@ jobs:
           dotnet workload install maui --include-optional
           dotnet workload restore
 
-      - name: Restore NuGet packages
-        run: dotnet restore
+      - name: Restore NuGet packages (Windows TFM)
+        run: dotnet restore "Dnp.S3.Browser.UI\Dnp.S3.Browser.UI.csproj" -f net10.0-windows10.0.19041.0
 
-      - name: Build
-        run: dotnet build -c Release
+      - name: Build (Windows TFM)
+        run: dotnet build "Dnp.S3.Browser.UI\Dnp.S3.Browser.UI.csproj" -c Release -f net10.0-windows10.0.19041.0
 
       - name: Run tests
         run: dotnet test -c Release
@@ -44,7 +44,6 @@ jobs:
             -f net10.0-windows10.0.19041.0 `
             -c Release `
             -p:Platform=x64 `
-            -p:RuntimeIdentifier=win10-x64 `
             -p:PublishSingleFile=false `
             -o $out
           # create zip package
