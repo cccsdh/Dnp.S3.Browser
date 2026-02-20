@@ -2,6 +2,8 @@ using Dnp.S3.Browser.ViewModels.ViewModels;
 using Microsoft.Maui.Storage;
 using Microsoft.Extensions.Caching.Memory;
 using System.IO;
+using System.Linq;
+using Dnp.S3.Browser.Core.Models;
 using Dnp.S3.Browser.UI.Converters;
 
 namespace Dnp.S3.Browser.UI.Pages;
@@ -55,27 +57,30 @@ public partial class S3BrowserPage : ContentPage
             return gridItem;
         });
 
-        _objectsView = new CollectionView { SelectionMode = SelectionMode.Single };
-        // When an object is clicked/selected, drill into it if it's a folder
+        _objectsView = new CollectionView { SelectionMode = SelectionMode.Multiple };
+        // When objects are selected, if exactly one folder is selected we drill into it; otherwise update action buttons
         _objectsView.SelectionChanged += async (s, e) =>
         {
-            var selected = e.CurrentSelection.FirstOrDefault() as Dnp.S3.Browser.Core.Models.S3ObjectInfo;
-            if (selected != null && selected.IsFolder)
+            var selectedItems = e.CurrentSelection?.Cast<object>().Select(o => o as S3ObjectInfo).Where(x => x != null).Cast<S3ObjectInfo>().ToList() ?? new List<S3ObjectInfo>();
+            if (selectedItems.Count == 1)
             {
-                _vm.SelectedPrefix = selected.Key;
-                UpdateBreadcrumb();
-                await _vm.LoadObjectsCommand.ExecuteAsync(null);
-                _objectsView.ItemsSource = _vm.Objects;
-                UpdateActionButtons();
+                var selected = selectedItems[0];
+                if (selected.IsFolder)
+                {
+                    _vm.SelectedPrefix = selected.Key;
+                    UpdateBreadcrumb();
+                    await _vm.LoadObjectsCommand.ExecuteAsync(null);
+                    _objectsView.ItemsSource = _vm.Objects;
+                    UpdateActionButtons();
+                    // clear selection so the same folder can be clicked again
+                    if (_objectsView.SelectedItem != null)
+                        _objectsView.SelectedItem = null;
+                    return;
+                }
             }
-            else
-            {
-                // If a file is selected, update action buttons to allow download/rename/delete
-                UpdateActionButtons();
-            }
-            // clear selection for folders (already handled) so the same item can be clicked again
-            if (selected != null && selected.IsFolder && _objectsView.SelectedItem != null)
-                _objectsView.SelectedItem = null;
+
+            // For multiple selection or single file selection, update action buttons
+            UpdateActionButtons();
         };
 
         _objectsView.ItemTemplate = new DataTemplate(() =>
@@ -237,25 +242,58 @@ public partial class S3BrowserPage : ContentPage
         // Upload enabled when a bucket is selected
         _uploadBtn.IsEnabled = _vm.SelectedBucket != null;
 
-        // Download/Rename/Delete enabled when a file is selected
-        var sel = _objectsView?.SelectedItem as Dnp.S3.Browser.Core.Models.S3ObjectInfo;
-        var fileSelected = sel != null && !sel.IsFolder;
-        _downloadBtn.IsEnabled = fileSelected;
-        _renameBtn.IsEnabled = fileSelected;
-        _deleteBtn.IsEnabled = sel != null; // allow delete for files or folders when explicitly selected
+        // Download/Rename/Delete enabled based on SelectedItems (supports multi-selection)
+        var sels = _objectsView?.SelectedItems?.Cast<object>().Select(o => o as S3ObjectInfo).Where(x => x != null).Cast<S3ObjectInfo>().ToList() ?? new List<S3ObjectInfo>();
+        var anySelected = sels.Any();
+        var anyFileSelected = sels.Any(x => !x.IsFolder);
+        _downloadBtn.IsEnabled = anyFileSelected;
+        _renameBtn.IsEnabled = (sels.Count == 1 && !sels[0].IsFolder);
+        _deleteBtn.IsEnabled = anySelected; // allow delete for files or folders when explicitly selected
     }
 
     private async void OnDownloadClicked(object? sender, EventArgs e)
     {
-        var selected = _objectsView.SelectedItem as Dnp.S3.Browser.Core.Models.S3ObjectInfo;
-        if (selected == null || _vm.SelectedBucket == null) return;
+        if (_vm.SelectedBucket == null) return;
 
-        var file = await FilePicker.PickAsync(new PickOptions { PickerTitle = "Save to" });
-        if (file == null) return;
+        var sels = _objectsView.SelectedItems?.Cast<object>().Select(o => o as S3ObjectInfo).Where(x => x != null).Cast<S3ObjectInfo>().ToList() ?? new List<S3ObjectInfo>();
+        var files = sels.Where(s => !s.IsFolder).ToList();
+        if (!files.Any())
+        {
+            await DisplayAlertAsync("Download", "No files selected to download.", "OK");
+            return;
+        }
 
-        var localPath = Path.Combine(FileSystem.AppDataDirectory, file.FileName);
-        await _vm.DownloadObjectAsync(_vm.SelectedBucket.Name, selected.Key, localPath);
-        await DisplayAlertAsync("Downloaded", $"Saved to {localPath}", "OK");
+        if (files.Count == 1)
+        {
+            var selected = files[0];
+            var file = await FilePicker.PickAsync(new PickOptions { PickerTitle = "Save to" });
+            if (file == null) return;
+            var localPath = Path.Combine(FileSystem.AppDataDirectory, file.FileName);
+            await _vm.DownloadObjectAsync(_vm.SelectedBucket.Name, selected.Key, localPath);
+            await DisplayAlertAsync("Downloaded", $"Saved to {localPath}", "OK");
+            return;
+        }
+
+        // Multiple files: allow the user to pick a target folder on Windows, otherwise use AppData Downloads
+#if WINDOWS
+        var targetFolder = await Dnp.S3.Browser.UI.Platforms.Windows.WindowsFolderPicker.PickFolderAsync();
+        if (string.IsNullOrEmpty(targetFolder))
+        {
+            await DisplayAlertAsync("Download", "No folder selected.", "OK");
+            return;
+        }
+        var targetDir = targetFolder;
+#else
+        var targetDir = Path.Combine(FileSystem.AppDataDirectory, "Downloads", DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+#endif
+        Directory.CreateDirectory(targetDir);
+        foreach (var f in files)
+        {
+            var fileName = Path.GetFileName(f.Key.Replace('/', Path.DirectorySeparatorChar));
+            var localPath = Path.Combine(targetDir, fileName);
+            await _vm.DownloadObjectAsync(_vm.SelectedBucket.Name, f.Key, localPath);
+        }
+        await DisplayAlertAsync("Downloaded", $"Saved {files.Count} files to {targetDir}", "OK");
     }
 
     private async void OnUploadClicked(object? sender, EventArgs e)
@@ -269,8 +307,10 @@ public partial class S3BrowserPage : ContentPage
 
     private async void OnRenameClicked(object? sender, EventArgs e)
     {
-        var sel = _objectsView.SelectedItem as Dnp.S3.Browser.Core.Models.S3ObjectInfo;
-        if (sel == null || _vm.SelectedBucket == null) return;
+        var sels = _objectsView.SelectedItems?.Cast<object>().Select(o => o as S3ObjectInfo).Where(x => x != null).Cast<S3ObjectInfo>().ToList() ?? new List<S3ObjectInfo>();
+        if (sels.Count != 1 || _vm.SelectedBucket == null) return;
+        var sel = sels[0];
+        if (sel.IsFolder) return;
         var result = await DisplayPromptAsync("Rename", "New key:", "OK", "Cancel", sel.Key);
         if (string.IsNullOrEmpty(result)) return;
         var confirm = await DisplayAlertAsync("Confirm", "Rename selected item?", "Yes", "No");
@@ -281,11 +321,13 @@ public partial class S3BrowserPage : ContentPage
 
     private async void OnDeleteClicked(object? sender, EventArgs e)
     {
-        var sel = _objectsView.SelectedItem as Dnp.S3.Browser.Core.Models.S3ObjectInfo;
-        if (sel == null || _vm.SelectedBucket == null) return;
-        var confirm = await DisplayAlertAsync("Confirm", "Delete selected item?", "Yes", "No");
+        if (_vm.SelectedBucket == null) return;
+        var sels = _objectsView.SelectedItems?.Cast<object>().Select(o => o as S3ObjectInfo).Where(x => x != null).Cast<S3ObjectInfo>().ToList() ?? new List<S3ObjectInfo>();
+        if (!sels.Any()) return;
+        var confirm = await DisplayAlertAsync("Confirm", $"Delete {sels.Count} selected item(s)?", "Yes", "No");
         if (!confirm) return;
-        await _vm.DeleteAsync(_vm.SelectedBucket.Name, sel.Key, sel.IsFolder);
+        var tasks = sels.Select(s => _vm.DeleteAsync(_vm.SelectedBucket.Name, s.Key, s.IsFolder));
+        await Task.WhenAll(tasks);
         await _vm.LoadObjectsCommand.ExecuteAsync(null);
     }
 }
