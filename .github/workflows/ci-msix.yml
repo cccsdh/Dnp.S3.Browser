@@ -27,7 +27,7 @@ jobs:
           dotnet workload restore
 
       - name: Restore NuGet packages (Windows TFM)
-        run: dotnet restore "Dnp.S3.Browser.UI\Dnp.S3.Browser.UI.csproj" -f net10.0-windows10.0.19041.0
+        run: dotnet restore "Dnp.S3.Browser.UI\Dnp.S3.Browser.UI.csproj" --framework net10.0-windows10.0.19041.0
 
       - name: Build (Windows TFM)
         run: dotnet build "Dnp.S3.Browser.UI\Dnp.S3.Browser.UI.csproj" -c Release -f net10.0-windows10.0.19041.0
