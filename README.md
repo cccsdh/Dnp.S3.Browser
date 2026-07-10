@@ -1,42 +1,44 @@
-# Dnp.S3.Browser
+﻿# Dnp.S3.Browser
 
 [![CI](https://github.com/cccsdh/Dnp.S3.Browser/actions/workflows/ci-msix.yml/badge.svg)](https://github.com/cccsdh/Dnp.S3.Browser/actions/workflows/ci-msix.yml)
 
+A .NET MAUI (.NET 10) S3 browser UI for working with S3-compatible storage. The UI project is Dnp.S3.Browser.UI and supporting libraries provide services and viewmodels.
 
-A .NET MAUI S3 browser utility that lists S3 buckets, browses bucket contents, and supports download, upload, rename and delete operations. The app uses a pluggable `IS3Service` with both an AWS-backed and a local filesystem-backed implementation for testing.
+Highlights
+- Supports AWS S3 and a LocalS3 filesystem-backed implementation (controlled with UseLocalS3 in appsettings).
+- MFA support: when explicit AWS credentials (AWS:AccessKey and AWS:SecretKey) are provided and an MFA device ARN (AWS:MFA) is set, the app will prompt for an MFA code and exchange it for temporary session credentials using STS. On Windows a native dialog is used; on other platforms an inline popup is shown.
+- Filtering: the Objects pane provides an overlaid filter prompt ("[Enter Filter Text]") — start typing to filter results in real time.
+- Multi-select and batch operations: select multiple objects to download or delete several items at once.
+- Multi-file upload: select multiple local files for upload into the selected bucket/prefix.
+- UI: compact icon-only action buttons with hover tooltips and visual separators to emulate grid lines.
 
-This repository contains a .NET MAUI UI project at `Dnp.S3.Browser.UI` and supporting class library projects (`Dnp.S3.Browser.Core`, `Dnp.S3.Browser.Services`, `Dnp.S3.Browser.ViewModels`).
+Configuration (Dnp.S3.Browser.UI/appsettings.json)
+- UseLocalS3 (bool): true to use the local filesystem-backed S3 service for testing.
+- AWS:AccessKey (string): optional AWS access key (only used if provided).
+- AWS:SecretKey (string): optional AWS secret key.
+- AWS:MFA (string): ARN of the MFA device. If present and explicit credentials are provided the app will prompt for MFA.
+- AWS:Region (string): AWS region system name (e.g. "us-east-1").
 
-## Building locally (Windows)
+Features in detail
+- Filtering
+  - The Objects list includes a filter control with an overlaid prompt. The overlay hides when the control is focused or when the user types; filtering occurs as you type.
 
-Prerequisites:
-- Windows 10/11 with the required developer tools installed for MAUI/WinUI packaging
-- .NET 10 SDK
-- (Optional for AWS) AWS credentials configured (environment or shared credentials file) or set `AWS:AccessKey` and `AWS:SecretKey` in `Dnp.S3.Browser.UI/appsettings.json` for local testing only.
+- Multi-object download
+  - Select multiple files (CTRL/Shift-select or platform selection gestures) and use the Download action to retrieve many files at once. On Windows you can choose a target folder; on other platforms the app uses the app data Downloads folder.
 
-To build and run the app from the command line (development):
+- Multi-object delete
+  - Select multiple items and confirm deletion.
 
-```bash
-# restore
-dotnet restore
-# build
-dotnet build Dnp.S3.Browser.UI/Dnp.S3.Browser.UI.csproj -c Release
-# run (Windows desktop)
-dotnet run -p Dnp.S3.Browser.UI/Dnp.S3.Browser.UI.csproj -f net10.0-windows10.0.19041.0
-```
+- Multi-file upload
+  - Use the Upload action to select and upload many local files in a single operation.
 
+Building & running
+- Prerequisites: .NET 10 SDK, MAUI workloads installed. Visual Studio 2026 with MAUI support recommended.
+- Open the solution in Visual Studio and run the Dnp.S3.Browser.UI project.
 
-## CI / ZIP packaging (Windows)
+Security notes
+- Do NOT commit real AWS secrets into source control. If you use AWS:AccessKey/AWS:SecretKey for local testing, remove them before committing.
 
-A GitHub Actions workflow is included that builds the solution, runs tests (if present), publishes the MAUI Windows app to a folder and produces a ZIP package with the publish output. The workflow file is `.github/workflows/ci-msix.yml`.
+Contributing
+- Contributions are welcome. Open issues or pull requests against the repository.
 
-Notes:
-- For local testing you can set `UseLocalS3` in `Dnp.S3.Browser.UI/appsettings.json` to `true` to use the local filesystem-backed S3 service.
-- Do not commit real AWS secrets into source control. The `AWS:AccessKey`/`SecretKey` entries are only for temporary local testing; remove before publishing.
-
-## Installing from ZIP
-
-Download the ZIP artifact from the CI run artifacts or from the GitHub Release assets, extract the folder and run the executable inside (for example `Dnp.S3.Browser.UI.exe`).
-
-Notes about signing and distribution:
-- The ZIP artifact is intended for testing and internal distribution. 

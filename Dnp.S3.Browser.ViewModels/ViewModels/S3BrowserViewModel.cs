@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Dnp.S3.Browser.Core.Interfaces;
 using Dnp.S3.Browser.Core.Models;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 
 namespace Dnp.S3.Browser.ViewModels.ViewModels;
 
@@ -47,9 +48,37 @@ public class S3BrowserViewModel : ObservableObject
     private async Task LoadObjectsAsync()
     {
         if (SelectedBucket == null) return;
+        Debug.WriteLine($"ViewModel: LoadObjectsAsync start bucket={SelectedBucket.Name} prefix={SelectedPrefix}");
         Objects.Clear();
-        var objs = await _s3.ListObjectsAsync(SelectedBucket.Name, SelectedPrefix);
-        foreach (var o in objs) Objects.Add(o);
+        try
+        {
+            // capture current synchronization context (UI) so we can marshal collection updates back
+            var sync = System.Threading.SynchronizationContext.Current;
+            // Use a timeout to avoid indefinitely blocking the UI if S3 calls hang
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var objs = (await _s3.ListObjectsAsync(SelectedBucket.Name, SelectedPrefix, cts.Token)).ToList();
+
+            if (sync != null)
+            {
+                sync.Post(_ =>
+                {
+                    Objects.Clear();
+                    foreach (var o in objs) Objects.Add(o);
+                    Debug.WriteLine($"ViewModel: LoadObjectsAsync completed count={Objects.Count}");
+                }, null);
+            }
+            else
+            {
+                Objects.Clear();
+                foreach (var o in objs) Objects.Add(o);
+                Debug.WriteLine($"ViewModel: LoadObjectsAsync completed count={Objects.Count}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ViewModel: LoadObjectsAsync error: {ex}");
+            throw;
+        }
     }
 
     // The following methods are left as async methods to be invoked by the UI or commands you add there.

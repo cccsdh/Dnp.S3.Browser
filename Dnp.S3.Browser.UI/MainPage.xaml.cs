@@ -18,7 +18,8 @@
             {
                 // Fallback: construct with resolved viewmodel or create default
                 var vm = services?.GetService(typeof(Dnp.S3.Browser.ViewModels.ViewModels.S3BrowserViewModel)) as Dnp.S3.Browser.ViewModels.ViewModels.S3BrowserViewModel;
-                page = new Dnp.S3.Browser.UI.Pages.S3BrowserPage(vm ?? new Dnp.S3.Browser.ViewModels.ViewModels.S3BrowserViewModel(new Dnp.S3.Browser.Services.Local.LocalS3Service(Path.Combine(Microsoft.Maui.Storage.FileSystem.AppDataDirectory, "LocalS3"), new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()))));
+                var config = services?.GetService(typeof(Microsoft.Extensions.Configuration.IConfiguration)) as Microsoft.Extensions.Configuration.IConfiguration;
+                page = new Dnp.S3.Browser.UI.Pages.S3BrowserPage(vm ?? new Dnp.S3.Browser.ViewModels.ViewModels.S3BrowserViewModel(new Dnp.S3.Browser.Services.Local.LocalS3Service(Path.Combine(Microsoft.Maui.Storage.FileSystem.AppDataDirectory, "LocalS3"), new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()))), config);
             }
 
             if (Navigation != null && page != null)

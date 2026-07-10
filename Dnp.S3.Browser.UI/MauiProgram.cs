@@ -29,6 +29,8 @@ namespace Dnp.S3.Browser.UI
             // Add configuration from appsettings.json (optional)
             builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
 
+            // Theme resources are set in App once the Application instance exists.
+
             // Caching for responsiveness
             builder.Services.AddMemoryCache();
 
@@ -55,26 +57,74 @@ namespace Dnp.S3.Browser.UI
                     regionEndpoint = Amazon.RegionEndpoint.GetBySystemName(region);
                 }
 
-                // Allow explicit credentials for testing via appsettings.json: AWS:AccessKey and AWS:SecretKey.
-                var accessKey = builder.Configuration["AWS:AccessKey"];
-                var secretKey = builder.Configuration["AWS:SecretKey"];
+                // MFA prompter (UI) - used when explicit credentials are provided and MFA ARN present
+                builder.Services.AddSingleton<Dnp.S3.Browser.UI.Services.IMfaPrompter, Dnp.S3.Browser.UI.Services.MfaPrompter>();
+                // Session store to cache created session credentials for app lifetime
+                builder.Services.AddSingleton<Dnp.S3.Browser.UI.Services.AwsSessionStore>();
 
-                builder.Services.AddSingleton<Amazon.S3.IAmazonS3>(sp =>
+                // Register AwsS3Service with a lazy client factory that can prompt for MFA when needed
+                builder.Services.AddSingleton<IS3Service>(sp =>
                 {
-                    if (!string.IsNullOrEmpty(accessKey) && !string.IsNullOrEmpty(secretKey))
+                    var cache = sp.GetRequiredService<IMemoryCache>();
+
+                    var accessKey = builder.Configuration["AWS:AccessKey"];
+                    var secretKey = builder.Configuration["AWS:SecretKey"];
+                    var mfaArn = builder.Configuration["AWS:MFA"]; // ARN of MFA device
+
+                    var prompter = sp.GetService<Dnp.S3.Browser.UI.Services.IMfaPrompter>();
+
+                    bool mfaPrompted = false;
+                    Func<Task<Amazon.S3.IAmazonS3>> factory = async () =>
                     {
-                        var creds = new BasicAWSCredentials(accessKey, secretKey);
-                        if (regionEndpoint != null)
-                            return new Amazon.S3.AmazonS3Client(creds, regionEndpoint);
-                        return new Amazon.S3.AmazonS3Client(creds);
-                    }
+                        if (!string.IsNullOrEmpty(accessKey) && !string.IsNullOrEmpty(secretKey))
+                        {
+                            var baseCreds = new BasicAWSCredentials(accessKey, secretKey);
 
-                    if (regionEndpoint != null)
-                        return new Amazon.S3.AmazonS3Client(regionEndpoint);
-                    return new Amazon.S3.AmazonS3Client();
+                            // If MFA ARN and prompter available, request MFA code and exchange for session token
+                            if (!string.IsNullOrEmpty(mfaArn) && prompter != null && !mfaPrompted)
+                            {
+                                // Prompt only once per app session. If STS exchange fails, do not prompt again.
+                                mfaPrompted = true;
+                                try
+                                {
+                                    var code = await prompter.PromptForCodeAsync(mfaArn);
+                                    if (!string.IsNullOrEmpty(code))
+                                    {
+                                        // Use AWS STS to get a session token via MFA
+                                        var sts = new Amazon.SecurityToken.AmazonSecurityTokenServiceClient(baseCreds, regionEndpoint);
+                                        var getReq = new Amazon.SecurityToken.Model.GetSessionTokenRequest { SerialNumber = mfaArn, TokenCode = code, DurationSeconds = 3600 };
+                                        var getResp = await sts.GetSessionTokenAsync(getReq);
+                                        var c = getResp.Credentials;
+                                        var sessionCreds = new Amazon.Runtime.SessionAWSCredentials(c.AccessKeyId, c.SecretAccessKey, c.SessionToken);
+                                        // store session credentials
+                                        var store = sp.GetService<Dnp.S3.Browser.UI.Services.AwsSessionStore>();
+                                        store?.SetCredentials(sessionCreds);
+                                        return regionEndpoint != null ? new Amazon.S3.AmazonS3Client(sessionCreds, regionEndpoint) : new Amazon.S3.AmazonS3Client(sessionCreds);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"MFA STS exchange failed: {ex.Message}");
+                                    // fall through to return base creds and do not prompt again
+                                }
+                            }
+
+                            // If a session already exists in the store, use it
+                            var existingStore = sp.GetService<Dnp.S3.Browser.UI.Services.AwsSessionStore>();
+                            var existing = existingStore?.GetCredentials();
+                            if (existing != null)
+                            {
+                                return regionEndpoint != null ? new Amazon.S3.AmazonS3Client(existing, regionEndpoint) : new Amazon.S3.AmazonS3Client(existing);
+                            }
+
+                            return regionEndpoint != null ? new Amazon.S3.AmazonS3Client(baseCreds, regionEndpoint) : new Amazon.S3.AmazonS3Client(baseCreds);
+                        }
+
+                        return regionEndpoint != null ? new Amazon.S3.AmazonS3Client(regionEndpoint) : new Amazon.S3.AmazonS3Client();
+                    };
+
+                    return new Dnp.S3.Browser.Services.Aws.AwsS3Service(factory, cache);
                 });
-
-                builder.Services.AddSingleton<IS3Service, Dnp.S3.Browser.Services.Aws.AwsS3Service>();
             }
 
             // ViewModel and pages
