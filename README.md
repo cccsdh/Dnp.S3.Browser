@@ -10,7 +10,6 @@ Highlights
 - Filtering: the Objects pane provides an overlaid filter prompt ("[Enter Filter Text]") — start typing to filter results in real time.
 - Multi-select and batch operations: select multiple objects to download or delete several items at once.
 - Multi-file upload: select multiple local files for upload into the selected bucket/prefix.
-- UI: compact icon-only action buttons with hover tooltips and visual separators to emulate grid lines.
 
 Configuration (Dnp.S3.Browser.UI/appsettings.json)
 - UseLocalS3 (bool): true to use the local filesystem-backed S3 service for testing.
