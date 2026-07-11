@@ -35,10 +35,3 @@ Features in detail
 Building & running
 - Prerequisites: .NET 10 SDK, MAUI workloads installed. Visual Studio 2026 with MAUI support recommended.
 - Open the solution in Visual Studio and run the Dnp.S3.Browser.UI project.
-
-Security notes
-- Do NOT commit real AWS secrets into source control. If you use AWS:AccessKey/AWS:SecretKey for local testing, remove them before committing.
-
-Contributing
-- Contributions are welcome. Open issues or pull requests against the repository.
-
