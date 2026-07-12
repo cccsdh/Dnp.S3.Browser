@@ -2,6 +2,9 @@
   "profiles": {
     "Windows Machine": {
       "commandName": "Project",
+      "environmentVariables": {
+        "DNP_S3_STARTUP_LOG": "1"
+      },
       "nativeDebugging": false
     }
   }

@@ -11,12 +11,30 @@ Highlights
 - Multi-select and batch operations: select multiple objects to download or delete several items at once.
 - Multi-file upload: select multiple local files for upload into the selected bucket/prefix.
 
-Configuration (Dnp.S3.Browser.UI/appsettings.json)
-- UseLocalS3 (bool): true to use the local filesystem-backed S3 service for testing.
-- AWS:AccessKey (string): optional AWS access key (only used if provided).
-- AWS:SecretKey (string): optional AWS secret key.
-- AWS:MFA (string): ARN of the MFA device. If present and explicit credentials are provided the app will prompt for MFA.
-- AWS:Region (string): AWS region system name (e.g. "us-east-1").
+Configuration and settings
+
+The application previously relied on Dnp.S3.Browser.UI/appsettings.json for runtime configuration. Settings have been migrated to a local SQLite store so multiple named accounts and secure storage of secrets are supported.
+
+Key points
+- Primary settings are now stored in a SQLite database at the app data folder (FileSystem.AppDataDirectory/settings.db).
+- Secret values (SecretKey) are encrypted with AES-GCM when a platform SecureStorage implementation is available. The symmetric key is stored in SecureStorage under the key "settings_db_key".
+- On first run (no default account found) the app displays a blocking settings editor over the main page to create the initial account.
+- Multiple named accounts are supported. Use the Account menu on the main page to Add, Edit, Set default, or Delete accounts.
+- appsettings.json is still shipped as a fallback for CI scenarios and when explicit values are desired, but runtime configuration prefers the SQLite-backed settings store.
+
+For compatibility the following keys are still recognized as fallbacks from appsettings.json (only used when no SQLite value exists):
+- UseLocalS3 (bool)
+- AWS:AccessKey (string)
+- AWS:SecretKey (string)
+- AWS:MFA (string)
+- AWS:Region (string)
+
+Startup logging (diagnostics)
+- To help diagnose startup UI issues enable gated startup logging by setting the environment variable DNP_S3_STARTUP_LOG=1 for the debug session. This will emit short traces to the debug output about the initial-settings prompt flow.
+
+Security notes
+- If the SecureStorage key is not available (platform/permission restrictions), SecretKey will be stored in plaintext in the DB so the app remains functional. Re-saving the account on a platform with SecureStorage available will encrypt the secret.
+- Moving the DB to another device will not migrate the SecureStorage key — secrets encrypted on one device cannot be decrypted on another without migrating the SecureStorage key separately.
 
 Features in detail
 - Filtering
@@ -30,6 +48,26 @@ Features in detail
 
 - Multi-file upload
   - Use the Upload action to select and upload many local files in a single operation.
+
+Settings & Account management UX
+- First-run: when the app starts with no default account, a modal overlay (inline on the main page) will prompt the user to create the initial account. The app blocks until a default account is created.
+- Account menu: the main page includes an Account menu (top-right). Click it to add a new account or manage existing ones (Edit, Set as default, Delete).
+
+Mockups
+
+Settings editor (first-run / add / edit)
+
+![Settings editor mockup](assets/mockups/settings-editor.svg)
+
+Main page (buckets and objects)
+
+![Main page mockup](assets/mockups/mainpage-buckets-objects.svg)
+
+Notes about the mockups
+- The settings editor uses the app's theme resources (PrimaryTextColor, InputBackgroundColor, BorderColor, etc.) so colors and contrast match the main UI.
+- The UI overlay frames input fields so text is visible even when the underlying overlay is semi-transparent.
+
+If you prefer different styling or want PNG screenshots, run the app and I can embed actual screenshots into the README instead of the SVG mockups.
 
 Building & running
 - Prerequisites: .NET 10 SDK, MAUI workloads installed. Visual Studio 2026 with MAUI support recommended.

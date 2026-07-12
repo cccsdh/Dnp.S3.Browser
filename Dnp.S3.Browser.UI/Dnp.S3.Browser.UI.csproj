@@ -70,6 +70,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
@@ -86,9 +87,6 @@
         <ProjectReference Include="..\Dnp.S3.Browser.Core\Dnp.S3.Browser.Core.csproj" />
         <ProjectReference Include="..\Dnp.S3.Browser.Services\Dnp.S3.Browser.Services.csproj" />
         <ProjectReference Include="..\Dnp.S3.Browser.ViewModels\Dnp.S3.Browser.ViewModels.csproj" />
-    </ItemGroup>
-    <ItemGroup>
-        <None Include="appsettings.json" CopyToOutputDirectory="Always" />
     </ItemGroup>
 
 </Project>

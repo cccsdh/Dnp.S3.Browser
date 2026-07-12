@@ -50,8 +50,8 @@ namespace Dnp.S3.Browser.UI.Services
                                         {
                                             // Build popup UI
                                             var entry = new Entry { Keyboard = Keyboard.Numeric, Placeholder = "123456", WidthRequest = 200 };
-                                            var ok = new Button { Text = "OK", WidthRequest = 80 };
-                                            var cancel = new Button { Text = "Cancel", WidthRequest = 80 };
+                                            var ok = new Button { Text = "✔️", WidthRequest = 36, HeightRequest = 36, FontSize = 20, BackgroundColor = Colors.Transparent };
+                                            var cancel = new Button { Text = "✖️", WidthRequest = 36, HeightRequest = 36, FontSize = 20, BackgroundColor = Colors.Transparent };
                                             var label = new Label { Text = $"Enter MFA code:", Margin = new Thickness(0,0,0,6) };
                                             var buttons = new StackLayout { Orientation = StackOrientation.Horizontal, Spacing = 10, HorizontalOptions = LayoutOptions.Center, Children = { ok, cancel } };
                                             // Wrap the entry in a framed box so the code field is more noticeable
@@ -85,15 +85,42 @@ namespace Dnp.S3.Browser.UI.Services
                                                     if (app.Resources.ContainsKey("InputBackgroundColor"))
                                                         entryContainer.SetDynamicResource(Frame.BackgroundColorProperty, "InputBackgroundColor");
 
-                                                    // Button styles
+                                                    // Button styles - use icon-only primary buttons and attach tooltips
                                                     if (app.Resources.ContainsKey("PrimaryButton"))
                                                     {
                                                         ok.Style = (Style)app.Resources["PrimaryButton"];
                                                         cancel.Style = (Style)app.Resources["PrimaryButton"];
-                                                        // make icons/text fit
-                                                        ok.Padding = new Thickness(6,4);
-                                                        cancel.Padding = new Thickness(6,4);
                                                     }
+                                                    ok.Padding = new Thickness(0);
+                                                    cancel.Padding = new Thickness(0);
+                                                    try
+                                                    {
+                                                        Microsoft.Maui.Controls.AutomationProperties.SetHelpText(ok, "OK");
+                                                        Microsoft.Maui.Controls.AutomationProperties.SetHelpText(cancel, "Cancel");
+#if WINDOWS
+                                                        ok.HandlerChanged += (s, e) =>
+                                                        {
+                                                            try
+                                                            {
+                                                                var native = ok.Handler?.PlatformView as global::Microsoft.UI.Xaml.FrameworkElement;
+                                                                if (native != null)
+                                                                    global::Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(native, "OK");
+                                                            }
+                                                            catch { }
+                                                        };
+                                                        cancel.HandlerChanged += (s, e) =>
+                                                        {
+                                                            try
+                                                            {
+                                                                var native = cancel.Handler?.PlatformView as global::Microsoft.UI.Xaml.FrameworkElement;
+                                                                if (native != null)
+                                                                    global::Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(native, "Cancel");
+                                                            }
+                                                            catch { }
+                                                        };
+#endif
+                                                    }
+                                                    catch { }
 
                                                     // Stack/Frame background
                                                     stack.SetDynamicResource(VisualElement.BackgroundColorProperty, "SurfaceColor");
@@ -142,8 +169,8 @@ namespace Dnp.S3.Browser.UI.Services
 
                             // Fallback to original modal approach if inline overlay not available
                             var entry2 = new Entry { Keyboard = Keyboard.Numeric, Placeholder = "123456" };
-                            var ok2 = new Button { Text = "OK" };
-                            var cancel2 = new Button { Text = "Cancel" };
+                            var ok2 = new Button { Text = "✔️", WidthRequest = 36, HeightRequest = 36, FontSize = 20, BackgroundColor = Colors.Transparent };
+                            var cancel2 = new Button { Text = "✖️", WidthRequest = 36, HeightRequest = 36, FontSize = 20, BackgroundColor = Colors.Transparent };
                             var label2 = new Label { Text = $"Enter MFA code for device: {mfaArn}", Margin = new Thickness(0,0,0,6) };
 
                             var entry2Container = new Frame { Content = entry2, Padding = new Thickness(6), CornerRadius = 6, HasShadow = false, BorderColor = Microsoft.Maui.Graphics.Color.FromArgb("#E0E0E0"), BackgroundColor = Microsoft.Maui.Graphics.Color.FromArgb("#FFFFFF"), HorizontalOptions = LayoutOptions.Center };
@@ -179,6 +206,36 @@ namespace Dnp.S3.Browser.UI.Services
                                         ok2.Style = (Style)app.Resources["PrimaryButton"];
                                         cancel2.Style = (Style)app.Resources["PrimaryButton"];
                                     }
+                                    ok2.Padding = new Thickness(0);
+                                    cancel2.Padding = new Thickness(0);
+                                    try
+                                    {
+                                        Microsoft.Maui.Controls.AutomationProperties.SetHelpText(ok2, "OK");
+                                        Microsoft.Maui.Controls.AutomationProperties.SetHelpText(cancel2, "Cancel");
+#if WINDOWS
+                                        ok2.HandlerChanged += (s, e) =>
+                                        {
+                                            try
+                                            {
+                                                var native = ok2.Handler?.PlatformView as global::Microsoft.UI.Xaml.FrameworkElement;
+                                                if (native != null)
+                                                    global::Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(native, "OK");
+                                            }
+                                            catch { }
+                                        };
+                                        cancel2.HandlerChanged += (s, e) =>
+                                        {
+                                            try
+                                            {
+                                                var native = cancel2.Handler?.PlatformView as global::Microsoft.UI.Xaml.FrameworkElement;
+                                                if (native != null)
+                                                    global::Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(native, "Cancel");
+                                            }
+                                            catch { }
+                                        };
+#endif
+                                    }
+                                    catch { }
                                 }
                             }
                             catch { }

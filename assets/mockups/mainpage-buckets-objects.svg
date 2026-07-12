@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="420" viewBox="0 0 1000 420">
+  <style>
+    .bg { fill: #FFFFFF }
+    .header { fill: #222222; font-family: Arial, Helvetica, sans-serif; font-size:18px; font-weight:700 }
+    .sub { fill: #555555; font-family: Arial, Helvetica, sans-serif; font-size:13px }
+    .panel { fill: #FAFAFA; stroke: #E0E0E0; stroke-width:1 }
+    .bucket-item { fill: #222222; font-family: Arial, Helvetica, sans-serif; font-size:13px }
+    .object-item { fill: #222222; font-family: Arial, Helvetica, sans-serif; font-size:13px }
+    .size { fill: #555555; font-family: Arial, Helvetica, sans-serif; font-size:12px }
+    .toolbar { fill: #0078D4; rx:6; ry:6 }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1000" height="420" />
+
+  <!-- Header -->
+  <text class="header" x="24" y="36">Dnp.S3.Browser</text>
+  <rect x="860" y="12" width="120" height="28" rx="4" ry="4" fill="#F3F3F3" stroke="#E0E0E0" />
+  <text x="882" y="32" font-family="Arial" font-size="13" fill="#222222">Account ▾</text>
+
+  <!-- Panels -->
+  <rect class="panel" x="24" y="56" width="300" height="332" rx="6" ry="6" />
+  <rect class="panel" x="340" y="56" width="636" height="332" rx="6" ry="6" />
+
+  <text class="sub" x="40" y="80">Buckets</text>
+  <text class="sub" x="356" y="80">Objects (prefix: /some/prefix/)</text>
+
+  <!-- Buckets list -->
+  <text class="bucket-item" x="40" y="108">1. my-bucket</text>
+  <line x1="40" y1="114" x2="320" y2="114" stroke="#E0E0E0" />
+  <text class="bucket-item" x="40" y="138">2. other-bucket</text>
+  <line x1="40" y1="144" x2="320" y2="144" stroke="#E0E0E0" />
+  <text class="bucket-item" x="40" y="168">3. logs-bucket</text>
+  <line x1="40" y1="174" x2="320" y2="174" stroke="#E0E0E0" />
+
+  <!-- Objects list -->
+  <rect x="356" y="96" width="588" height="28" fill="#FFFFFF" stroke="#E0E0E0" rx="6" ry="6" />
+  <text x="364" y="116" class="sub">Filter: Enter Filter Text</text>
+
+  <text class="object-item" x="364" y="160">[ ] file1.txt</text>
+  <text class="size" x="860" y="160">12 KB</text>
+  <line x1="356" y1="168" x2="964" y2="168" stroke="#E0E0E0" />
+
+  <text class="object-item" x="364" y="196">[ ] file2.jpg</text>
+  <text class="size" x="860" y="196">1.2 MB</text>
+  <line x1="356" y1="204" x2="964" y2="204" stroke="#E0E0E0" />
+
+  <text class="object-item" x="364" y="232">[ ] dir/</text>
+  <text class="size" x="860" y="232">&lt;DIR&gt;</text>
+  <line x1="356" y1="240" x2="964" y2="240" stroke="#E0E0E0" />
+
+  <text class="object-item" x="364" y="268">[ ] dir/inner/file3.log</text>
+  <text class="size" x="860" y="268">4 KB</text>
+  <line x1="356" y1="276" x2="964" y2="276" stroke="#E0E0E0" />
+
+  <!-- Action buttons -->
+  <rect x="364" y="308" width="36" height="36" rx="6" ry="6" fill="#F3F3F3" stroke="#E0E0E0" />
+  <text x="370" y="332">📥</text>
+  <rect x="410" y="308" width="36" height="36" rx="6" ry="6" fill="#F3F3F3" stroke="#E0E0E0" />
+  <text x="416" y="332">📤</text>
+  <rect x="456" y="308" width="36" height="36" rx="6" ry="6" fill="#F3F3F3" stroke="#E0E0E0" />
+  <text x="462" y="332">✏️</text>
+  <rect x="502" y="308" width="36" height="36" rx="6" ry="6" fill="#F3F3F3" stroke="#E0E0E0" />
+  <text x="508" y="332">🗑️</text>
+
+</svg>

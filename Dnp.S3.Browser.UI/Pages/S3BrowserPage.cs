@@ -35,6 +35,113 @@ public partial class S3BrowserPage : ContentPage
             Debug.WriteLine(m);
     }
 
+    // Prompt for initial settings if none exist. This is intended to be called
+    // from App.CreateWindow after the page has been created and set as MainPage.
+    public System.Threading.Tasks.Task PromptForSettingsIfMissing(Dnp.S3.Browser.UI.Services.SettingsService settingsSvc)
+    {
+        if (settingsSvc == null) return System.Threading.Tasks.Task.CompletedTask;
+        if (settingsSvc.GetSettings() != null) return System.Threading.Tasks.Task.CompletedTask;
+
+        var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
+        // Create the settings editor and show it in the overlay
+        var editor = new Dnp.S3.Browser.UI.Pages.SettingsPage(settingsSvc, null);
+        editor.Saved += (s, e) =>
+        {
+            try
+            {
+                _overlay.IsVisible = false;
+                _overlay.Children.Clear();
+            }
+            catch { }
+            tcs.TrySetResult(true);
+        };
+
+        // Show overlay on UI thread; caller should ensure this runs on the main thread.
+        try
+        {
+            Dnp.S3.Browser.UI.Services.StartupLog.Log("Showing settings overlay on S3BrowserPage.");
+            _overlay.IsVisible = true;
+            _overlay.Children.Clear();
+            _overlay.Children.Add(editor);
+        }
+        catch (System.Exception ex)
+        {
+            Dnp.S3.Browser.UI.Services.StartupLog.Log($"Failed to show settings overlay: {ex}");
+            tcs.TrySetResult(true);
+        }
+
+        return tcs.Task;
+    }
+
+    private void AccountBtn_Clicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            var services = this.Handler?.MauiContext?.Services;
+            var settingsSvc = services?.GetService(typeof(Dnp.S3.Browser.UI.Services.SettingsService)) as Dnp.S3.Browser.UI.Services.SettingsService;
+            if (settingsSvc == null) return;
+
+            var list = settingsSvc.GetAllSettings();
+            // Build a simple action sheet to choose account or add/edit
+            var actions = list.Select(s => s.Name ?? $"Account {s.Id}").ToList();
+            actions.Add("Add account...");
+            // On Windows, use native menu; otherwise use DisplayActionSheet
+            Microsoft.Maui.ApplicationModel.MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                var choice = await Application.Current?.MainPage?.DisplayActionSheet("Accounts", "Cancel", null, actions.ToArray());
+                if (string.IsNullOrEmpty(choice) || choice == "Cancel") return;
+                if (choice == "Add account...")
+                {
+                    ShowSettingsEditor(null);
+                    return;
+                }
+
+                // Find selected account
+                var sel = list.FirstOrDefault(s => (s.Name ?? $"Account {s.Id}") == choice);
+                if (sel != null)
+                {
+                    // Offer Edit / Set Default / Delete
+                    var opt = await Application.Current?.MainPage?.DisplayActionSheet($"Account: {sel.Name}", "Cancel", null, "Edit", "Set as default", "Delete");
+                    if (opt == "Edit") ShowSettingsEditor(sel);
+                    else if (opt == "Set as default")
+                    {
+                        settingsSvc.SetDefaultById(sel.Id);
+                        // restart or refresh to apply new settings - for simplicity reload page
+                        await _vm.LoadBucketsCommand.ExecuteAsync(null);
+                    }
+                    else if (opt == "Delete")
+                    {
+                        var confirm = await Application.Current?.MainPage?.DisplayAlert("Confirm", $"Delete account '{sel.Name}'?", "Yes", "No");
+                        if (confirm)
+                        {
+                            settingsSvc.DeleteById(sel.Id);
+                        }
+                    }
+                }
+            });
+        }
+        catch { }
+    }
+
+    private void ShowSettingsEditor(Dnp.S3.Browser.UI.Services.SettingsModel? model)
+    {
+        var services = this.Handler?.MauiContext?.Services;
+        var settingsSvc = services?.GetService(typeof(Dnp.S3.Browser.UI.Services.SettingsService)) as Dnp.S3.Browser.UI.Services.SettingsService;
+        if (settingsSvc == null) return;
+        var editor = new Dnp.S3.Browser.UI.Pages.SettingsPage(settingsSvc, model);
+        editor.Saved += (s, e) =>
+        {
+            // Close overlay
+            _overlay.IsVisible = false;
+            _overlay.Children.Clear();
+            // reload accounts/buckets
+            _ = _vm.LoadBucketsCommand.ExecuteAsync(null);
+        };
+        _overlay.IsVisible = true;
+        _overlay.Children.Clear();
+        _overlay.Children.Add(editor);
+    }
+
     public S3BrowserPage(S3BrowserViewModel vm, IConfiguration? config = null)
     {
         _vm = vm;
@@ -44,6 +151,16 @@ public partial class S3BrowserPage : ContentPage
 
         // Breadcrumb layout
         _breadcrumbLayout = new StackLayout { Orientation = StackOrientation.Horizontal, Spacing = 4, Padding = new Thickness(6, 0) };
+
+        // Top menu: account selector
+        var menuBar = new Grid { ColumnDefinitions = new ColumnDefinitionCollection { new ColumnDefinition { Width = GridLength.Star }, new ColumnDefinition { Width = GridLength.Auto } }, Padding = new Thickness(4, 2) };
+        var title = new Label { Text = "Dnp.S3.Browser", FontAttributes = FontAttributes.Bold, VerticalOptions = LayoutOptions.Center };
+        menuBar.Add(title, 0, 0);
+        var accountBtn = new Button { Text = "Account ▾", BackgroundColor = Colors.Transparent };
+        accountBtn.Clicked += AccountBtn_Clicked;
+        menuBar.Add(accountBtn, 1, 0);
+
+        // Add menuBar to the top of the main grid later
 
         // Buckets view
         _bucketsView = new CollectionView { SelectionMode = SelectionMode.Single };
@@ -206,7 +323,10 @@ public partial class S3BrowserPage : ContentPage
 
         // Breadcrumb
         var breadcrumbScroll = new ScrollView { Orientation = ScrollOrientation.Horizontal, Content = _breadcrumbLayout, HorizontalOptions = LayoutOptions.StartAndExpand };
-        grid.Add(breadcrumbScroll, 0, 0);
+        grid.Add(menuBar, 0, 0);
+        Grid.SetColumnSpan(menuBar, 2);
+        grid.Add(breadcrumbScroll, 0, 1);
+        Grid.SetColumnSpan(breadcrumbScroll, 2);
         Grid.SetColumnSpan(breadcrumbScroll, 2);
 
         // Headers area: left = bucket header, right = filter + objects header
@@ -249,8 +369,8 @@ public partial class S3BrowserPage : ContentPage
         objectsHeaderStack.Add(filterGridOverlay);
         objectsHeaderStack.Add(objectsHeaderGrid);
 
-        grid.Add(bucketHeader, 0, 1);
-        grid.Add(objectsHeaderStack, 1, 1);
+        grid.Add(bucketHeader, 0, 2);
+        grid.Add(objectsHeaderStack, 1, 2);
 
         // Put lists in frames for a cleaner, professional look
         var bucketsFrame = new Frame { Content = _bucketsView, Style = (Style)Application.Current.Resources["ItemFrame"] };
