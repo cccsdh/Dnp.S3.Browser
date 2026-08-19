@@ -89,4 +89,10 @@
         <ProjectReference Include="..\Dnp.S3.Browser.ViewModels\Dnp.S3.Browser.ViewModels.csproj" />
     </ItemGroup>
 
+    <!-- Plain (non-MAUI) class library that hosts a WinForms FolderBrowserDialog wrapper. Kept out of
+         this project because enabling UseWindowsForms here conflicts with MAUI's XAML build pipeline. -->
+    <ItemGroup>
+        <ProjectReference Include="..\Dnp.S3.Browser.WindowsDialogs\Dnp.S3.Browser.WindowsDialogs.csproj" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
+    </ItemGroup>
+
 </Project>

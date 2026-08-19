@@ -5,4 +5,5 @@
     <Deploy Solution="Debug|*" />
   </Project>
   <Project Path="Dnp.S3.Browser.ViewModels/Dnp.S3.Browser.ViewModels.csproj" />
+  <Project Path="Dnp.S3.Browser.WindowsDialogs/Dnp.S3.Browser.WindowsDialogs.csproj" />
 </Solution>

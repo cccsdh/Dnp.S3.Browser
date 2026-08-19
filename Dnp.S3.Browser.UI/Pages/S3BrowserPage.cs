@@ -18,6 +18,9 @@ public partial class S3BrowserPage : ContentPage
     private CollectionView _bucketsView = null!;
     private CollectionView _objectsView = null!;
     private ObservableCollection<S3ObjectInfo> _filteredObjects = null!;
+    // Items explicitly checked via the row checkbox, for batch download/delete. Decoupled from
+    // row taps, which navigate into folders instead of selecting them.
+    private readonly HashSet<S3ObjectInfo> _selectedObjects = new();
     private string? _filterText;
     private Entry? _filterEntry;
     private System.Threading.CancellationTokenSource? _filterCts;
@@ -170,6 +173,7 @@ public partial class S3BrowserPage : ContentPage
             {
                 _vm.SelectedBucket = b;
                 _vm.SelectedPrefix = null;
+                _selectedObjects.Clear();
                 UpdateBreadcrumb();
                 // Load objects for the selected bucket automatically
                 Log("BucketsView: starting LoadObjectsCommand (bucket selection)");
@@ -200,71 +204,60 @@ public partial class S3BrowserPage : ContentPage
         });
 
         // Objects view
-        _objectsView = new CollectionView { SelectionMode = SelectionMode.Multiple };
-        // When objects are selected, if exactly one folder is selected we drill into it; otherwise update action buttons
-        _objectsView.SelectionChanged += async (s, e) =>
-        {
-            var selectedItems = e.CurrentSelection?.Cast<object>().Select(o => o as S3ObjectInfo).Where(x => x != null).Cast<S3ObjectInfo>().ToList() ?? new List<S3ObjectInfo>();
-            Log($"ObjectsView: selection changed count={selectedItems.Count}");
-            if (selectedItems.Count == 1 && selectedItems[0].IsFolder)
-            {
-                var selected = selectedItems[0];
-                Log($"ObjectsView: drilling into folder={selected.Key}");
-                // When drilling into a folder, clear any object filter so the new folder lists all items
-                _filterText = null;
-                if (_filterEntry != null)
-                    _filterEntry.Text = string.Empty;
-
-                _vm.SelectedPrefix = selected.Key;
-                UpdateBreadcrumb();
-                Log("ObjectsView: starting LoadObjectsCommand for folder");
-                try
-                {
-                    await _vm.LoadObjectsCommand.ExecuteAsync(null);
-                    Log("ObjectsView: LoadObjectsCommand for folder completed");
-                    // VM marshals collection changes to the UI thread; no artificial delay required
-                }
-                catch (System.Exception ex)
-                {
-                    Log($"ObjectsView: LoadObjectsCommand for folder failed: {ex}");
-                }
-                ApplyFilter();
-                UpdateActionButtons();
-                // clear selection so the same folder can be clicked again
-                if (_objectsView.SelectedItem != null)
-                    _objectsView.SelectedItem = null;
-                return;
-            }
-
-            // For multiple selection or single file selection, update action buttons
-            UpdateActionButtons();
-        };
+        // Selection is handled entirely via an explicit checkbox in each row (see below) rather than
+        // CollectionView's own tap-to-select, so that tapping a folder row navigates into it instead
+        // of selecting it. SelectionMode.None disables CollectionView's built-in selection behavior.
+        _objectsView = new CollectionView { SelectionMode = SelectionMode.None };
         _objectsView.ItemTemplate = new DataTemplate(() =>
         {
             var gridItem = new Grid
             {
-                ColumnDefinitions = new ColumnDefinitionCollection { new ColumnDefinition { Width = GridLength.Auto }, new ColumnDefinition { Width = GridLength.Star }, new ColumnDefinition { Width = GridLength.Auto } },
+                ColumnDefinitions = new ColumnDefinitionCollection { new ColumnDefinition { Width = GridLength.Auto }, new ColumnDefinition { Width = GridLength.Star } },
                 Padding = new Thickness(10,8)
+            };
+
+            var checkBox = new CheckBox { VerticalOptions = LayoutOptions.Center };
+            checkBox.CheckedChanged += (s, e) =>
+            {
+                if (gridItem.BindingContext is not S3ObjectInfo obj) return;
+                if (e.Value) _selectedObjects.Add(obj);
+                else _selectedObjects.Remove(obj);
+                UpdateActionButtons();
+            };
+            gridItem.Add(checkBox, 0, 0);
+
+            // Row content (icon/name/size) is a single tappable area, separate from the checkbox,
+            // so tapping anywhere on the row (but not the checkbox) drills into a folder.
+            var rowContent = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitionCollection { new ColumnDefinition { Width = GridLength.Auto }, new ColumnDefinition { Width = GridLength.Star }, new ColumnDefinition { Width = GridLength.Auto } }
             };
 
             var icon = new Label { VerticalOptions = LayoutOptions.Center };
             icon.SetDynamicResource(Label.TextColorProperty, "PrimaryTextColor");
             icon.SetBinding(Label.TextProperty, new Binding("IsFolder", converter: new FolderIconConverter()));
-            gridItem.Add(icon, 0, 0);
+            rowContent.Add(icon, 0, 0);
 
             var key = new Label { VerticalOptions = LayoutOptions.Center, Style = (Style)Application.Current.Resources["PrimaryLabel"] };
             key.SetBinding(Label.TextProperty, "Key");
-            gridItem.Add(key, 1, 0);
+            rowContent.Add(key, 1, 0);
 
             var size = new Label { VerticalOptions = LayoutOptions.Center, HorizontalOptions = LayoutOptions.End, WidthRequest = 120, HorizontalTextAlignment = TextAlignment.End, Style = (Style)Application.Current.Resources["PrimaryLabel"] };
             size.SetDynamicResource(Label.TextColorProperty, "SecondaryTextColor");
             size.SetBinding(Label.TextProperty, "Size");
-            gridItem.Add(size, 2, 0);
+            rowContent.Add(size, 2, 0);
 
-            // Add selection tap for visual feedback
-            var tap = new TapGestureRecognizer();
-            tap.Tapped += (s, e) => { }; // placeholder
-            gridItem.GestureRecognizers.Add(tap);
+            // Tapping the row content drills into a folder. The checkbox (outside rowContent) is the
+            // only way to select an item for batch download/delete.
+            var rowTap = new TapGestureRecognizer();
+            rowTap.Tapped += async (s, e) =>
+            {
+                if (gridItem.BindingContext is S3ObjectInfo obj && obj.IsFolder)
+                    await DrillIntoFolderAsync(obj);
+            };
+            rowContent.GestureRecognizers.Add(rowTap);
+            gridItem.Add(rowContent, 1, 0);
+
             // Add a bottom separator to simulate grid lines between rows
             var separator = new BoxView { HeightRequest = 1, BackgroundColor = Microsoft.Maui.Graphics.Color.FromArgb("#E0E0E0"), HorizontalOptions = LayoutOptions.FillAndExpand };
             return new StackLayout { Spacing = 0, Children = { gridItem, separator } };
@@ -272,7 +265,8 @@ public partial class S3BrowserPage : ContentPage
 
         // Filtered collection and binding
         _filteredObjects = new ObservableCollection<S3ObjectInfo>();
-        _objectsView.ItemsSource = _filteredObjects;
+        // If no filter text yet, bind directly to the VM collection for best performance
+        _objectsView.ItemsSource = string.IsNullOrEmpty(_filterText) ? (System.Collections.IEnumerable)_vm.Objects : (System.Collections.IEnumerable)_filteredObjects;
         // Only run filtering when the user has entered a filter. When no filter text is active
         // bind directly to the viewmodel collection to avoid repeated snapshotting and rebinding
         // while the VM is populating a large object list.
@@ -333,7 +327,8 @@ public partial class S3BrowserPage : ContentPage
         var bucketHeader = new Label { Text = "Buckets", FontAttributes = FontAttributes.Bold, VerticalOptions = LayoutOptions.Center, Padding = new Thickness(8, 6) };
 
         // Filter entry with overlay placeholder label
-        _filterEntry = new Entry { Placeholder = string.Empty, HorizontalOptions = LayoutOptions.FillAndExpand, BackgroundColor = Colors.White, Margin = new Thickness(0,0,0,4) };
+        // Use the app's DefaultEntry style so theming (text/background) is consistent and visible
+        _filterEntry = new Entry { Placeholder = "Filter objects...", HorizontalOptions = LayoutOptions.FillAndExpand, Style = (Style)Application.Current.Resources["DefaultEntry"], Margin = new Thickness(0,0,0,4) };
         var filterOverlayLabel = new Label { Text = "[Enter Filter Text]", VerticalOptions = LayoutOptions.Center, Margin = new Thickness(6,0,0,4), IsVisible = true };
         filterOverlayLabel.SetDynamicResource(Label.TextColorProperty, "SecondaryTextColor");
 
@@ -464,7 +459,7 @@ public partial class S3BrowserPage : ContentPage
 
         // Bucket button
         var bucketBtn = new Button { Text = _vm.SelectedBucket.Name + "/", BackgroundColor = Colors.Transparent };
-        bucketBtn.Clicked += async (_, __) => { _vm.SelectedPrefix = null; await _vm.LoadObjectsCommand.ExecuteAsync(null); ApplyFilter(); UpdateBreadcrumb(); };
+        bucketBtn.Clicked += async (_, __) => { _vm.SelectedPrefix = null; _selectedObjects.Clear(); await _vm.LoadObjectsCommand.ExecuteAsync(null); ApplyFilter(); UpdateBreadcrumb(); };
         _breadcrumbLayout.Add(bucketBtn);
 
         var prefix = _vm.SelectedPrefix;
@@ -481,7 +476,7 @@ public partial class S3BrowserPage : ContentPage
 
             var segBtn = new Button { Text = seg + "/", BackgroundColor = Colors.Transparent };
             var targetPrefix = cum; // capture
-            segBtn.Clicked += async (_, __) => { _vm.SelectedPrefix = targetPrefix; await _vm.LoadObjectsCommand.ExecuteAsync(null); ApplyFilter(); UpdateBreadcrumb(); };
+            segBtn.Clicked += async (_, __) => { _vm.SelectedPrefix = targetPrefix; _selectedObjects.Clear(); await _vm.LoadObjectsCommand.ExecuteAsync(null); ApplyFilter(); UpdateBreadcrumb(); };
             _breadcrumbLayout.Add(new Label { Text = "> ", VerticalOptions = LayoutOptions.Center });
             _breadcrumbLayout.Add(segBtn);
         }
@@ -494,28 +489,56 @@ public partial class S3BrowserPage : ContentPage
         // Upload enabled when a bucket is selected
         _uploadBtn.IsEnabled = _vm.SelectedBucket != null;
 
-        // Download/Rename/Delete enabled based on SelectedItems (supports multi-selection)
-        var sels = _objectsView?.SelectedItems?.Cast<object>().Select(o => o as S3ObjectInfo).Where(x => x != null).Cast<S3ObjectInfo>().ToList() ?? new List<S3ObjectInfo>();
+        // Download/Rename/Delete enabled based on the checked items (supports multi-selection)
+        var sels = _selectedObjects.ToList();
         var anySelected = sels.Any();
-        var anyFileSelected = sels.Any(x => !x.IsFolder);
-        _downloadBtn.IsEnabled = anyFileSelected;
+        _downloadBtn.IsEnabled = anySelected; // files and/or folders can be downloaded
         _renameBtn.IsEnabled = (sels.Count == 1 && !sels[0].IsFolder);
         _deleteBtn.IsEnabled = anySelected; // allow delete for files or folders when explicitly selected
+    }
+
+    // Navigate into a folder: clear any active filter, update the selected prefix, reload objects
+    // and clear the current selection so the same folder can be drilled into again later.
+    private async Task DrillIntoFolderAsync(S3ObjectInfo folder)
+    {
+        Log($"ObjectsView: drilling into folder={folder.Key}");
+        _filterText = null;
+        if (_filterEntry != null)
+            _filterEntry.Text = string.Empty;
+
+        _vm.SelectedPrefix = folder.Key;
+        UpdateBreadcrumb();
+        Log("ObjectsView: starting LoadObjectsCommand for folder");
+        try
+        {
+            await _vm.LoadObjectsCommand.ExecuteAsync(null);
+            Log("ObjectsView: LoadObjectsCommand for folder completed");
+        }
+        catch (System.Exception ex)
+        {
+            Log($"ObjectsView: LoadObjectsCommand for folder failed: {ex}");
+        }
+        // Navigating to a new folder invalidates any previously checked items
+        _selectedObjects.Clear();
+        ApplyFilter();
+        UpdateActionButtons();
     }
 
     private async void OnDownloadClicked(object? sender, EventArgs e)
     {
         if (_vm.SelectedBucket == null) return;
 
-        var sels = _objectsView.SelectedItems?.Cast<object>().Select(o => o as S3ObjectInfo).Where(x => x != null).Cast<S3ObjectInfo>().ToList() ?? new List<S3ObjectInfo>();
+        var sels = _selectedObjects.ToList();
         var files = sels.Where(s => !s.IsFolder).ToList();
-        if (!files.Any())
+        var folders = sels.Where(s => s.IsFolder).ToList();
+        if (!files.Any() && !folders.Any())
         {
-            await DisplayAlertAsync("Download", "No files selected to download.", "OK");
+            await DisplayAlertAsync("Download", "No items selected to download.", "OK");
             return;
         }
 
-        if (files.Count == 1)
+        // Single file only: pick a filename and save it directly
+        if (files.Count == 1 && folders.Count == 0)
         {
             var selected = files[0];
             var file = await FilePicker.PickAsync(new PickOptions { PickerTitle = "Save to" });
@@ -526,12 +549,24 @@ public partial class S3BrowserPage : ContentPage
             return;
         }
 
-        // Multiple files: allow the user to pick a target folder on Windows, otherwise use AppData Downloads
+        // Multiple items (files and/or folders): pick a target folder on Windows, otherwise use AppData Downloads.
+        // Files are copied directly into it; each selected folder is downloaded as a "<name>.zip" archive
+        // (folder contents are downloaded recursively, including nested subfolders).
 #if WINDOWS
-        var targetFolder = await Dnp.S3.Browser.UI.Platforms.Windows.WindowsFolderPicker.PickFolderAsync();
+        string? targetFolder;
+        try
+        {
+            targetFolder = await Dnp.S3.Browser.UI.Platforms.Windows.WindowsFolderPicker.PickFolderAsync();
+        }
+        catch (System.Exception ex)
+        {
+            Log($"OnDownloadClicked: folder picker failed: {ex}");
+            await DisplayAlertAsync("Download", $"Could not open the folder picker: {ex.Message}", "OK");
+            return;
+        }
         if (string.IsNullOrEmpty(targetFolder))
         {
-            await DisplayAlertAsync("Download", "No folder selected.", "OK");
+            // User explicitly cancelled the picker dialog
             return;
         }
         var targetDir = targetFolder;
@@ -545,7 +580,13 @@ public partial class S3BrowserPage : ContentPage
             var localPath = Path.Combine(targetDir, fileName);
             await _vm.DownloadObjectAsync(_vm.SelectedBucket.Name, f.Key, localPath);
         }
-        await DisplayAlertAsync("Downloaded", $"Saved {files.Count} files to {targetDir}", "OK");
+        foreach (var folder in folders)
+        {
+            var folderName = folder.Key.TrimEnd('/').Split('/').Last();
+            var zipPath = Path.Combine(targetDir, folderName + ".zip");
+            await _vm.DownloadFolderAsync(_vm.SelectedBucket.Name, folder.Key, zipPath);
+        }
+        await DisplayAlertAsync("Downloaded", $"Saved {files.Count} file(s) and {folders.Count} folder(s) to {targetDir}", "OK");
     }
 
     private async void OnUploadClicked(object? sender, EventArgs e)
@@ -559,7 +600,7 @@ public partial class S3BrowserPage : ContentPage
 
     private async void OnRenameClicked(object? sender, EventArgs e)
     {
-        var sels = _objectsView.SelectedItems?.Cast<object>().Select(o => o as S3ObjectInfo).Where(x => x != null).Cast<S3ObjectInfo>().ToList() ?? new List<S3ObjectInfo>();
+        var sels = _selectedObjects.ToList();
         if (sels.Count != 1 || _vm.SelectedBucket == null) return;
         var sel = sels[0];
         if (sel.IsFolder) return;
@@ -568,6 +609,7 @@ public partial class S3BrowserPage : ContentPage
         var confirm = await DisplayAlertAsync("Confirm", "Rename selected item?", "Yes", "No");
         if (!confirm) return;
         await _vm.RenameAsync(_vm.SelectedBucket.Name, sel.Key, result);
+        _selectedObjects.Clear();
         await _vm.LoadObjectsCommand.ExecuteAsync(null);
         ApplyFilter();
     }
@@ -575,12 +617,13 @@ public partial class S3BrowserPage : ContentPage
     private async void OnDeleteClicked(object? sender, EventArgs e)
     {
         if (_vm.SelectedBucket == null) return;
-        var sels = _objectsView.SelectedItems?.Cast<object>().Select(o => o as S3ObjectInfo).Where(x => x != null).Cast<S3ObjectInfo>().ToList() ?? new List<S3ObjectInfo>();
+        var sels = _selectedObjects.ToList();
         if (!sels.Any()) return;
         var confirm = await DisplayAlertAsync("Confirm", $"Delete {sels.Count} selected item(s)?", "Yes", "No");
         if (!confirm) return;
         var tasks = sels.Select(s => _vm.DeleteAsync(_vm.SelectedBucket.Name, s.Key, s.IsFolder));
         await Task.WhenAll(tasks);
+        _selectedObjects.Clear();
         await _vm.LoadObjectsCommand.ExecuteAsync(null);
         ApplyFilter();
     }

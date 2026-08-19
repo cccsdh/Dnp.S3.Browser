@@ -3,37 +3,22 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using WinRT.Interop;
-using Windows.Storage.Pickers;
 using Microsoft.UI.Xaml;
 
 namespace Dnp.S3.Browser.UI.Platforms.Windows
 {
     public static class WindowsFolderPicker
     {
-        public static async Task<string?> PickFolderAsync()
+        public static Task<string?> PickFolderAsync()
         {
-            var picker = new FolderPicker();
-            picker.SuggestedStartLocation = PickerLocationId.Desktop;
-            // FolderPicker requires at least one file type filter
-            picker.FileTypeFilter.Add("*");
-
-            try
+            var hwnd = IntPtr.Zero;
+            var mauiWindow = Microsoft.Maui.Controls.Application.Current?.Windows?.FirstOrDefault();
+            if (mauiWindow?.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
             {
-                // Get the current MAUI window and its underlying native window
-                var mauiWindow = Microsoft.Maui.Controls.Application.Current?.Windows?.FirstOrDefault();
-                if (mauiWindow?.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
-                {
-                    var hwnd = WindowNative.GetWindowHandle(nativeWindow);
-                    InitializeWithWindow.Initialize(picker, hwnd);
-                }
+                hwnd = WindowNative.GetWindowHandle(nativeWindow);
+            }
 
-                var folder = await picker.PickSingleFolderAsync();
-                return folder?.Path;
-            }
-            catch
-            {
-                return null;
-            }
+            return Dnp.S3.Browser.WindowsDialogs.FolderPickerDialog.PickFolderAsync(hwnd);
         }
     }
 }
