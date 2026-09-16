@@ -9,6 +9,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using Dnp.S3.Browser.Core.Models;
 using Dnp.S3.Browser.UI.Converters;
+using System.Text.RegularExpressions;
 
 namespace Dnp.S3.Browser.UI.Pages;
 
@@ -239,7 +240,7 @@ public partial class S3BrowserPage : ContentPage
             rowContent.Add(icon, 0, 0);
 
             var key = new Label { VerticalOptions = LayoutOptions.Center, Style = (Style)Application.Current.Resources["PrimaryLabel"] };
-            key.SetBinding(Label.TextProperty, "Key");
+            key.SetBinding(Label.TextProperty, "Name");
             rowContent.Add(key, 1, 0);
 
             var size = new Label { VerticalOptions = LayoutOptions.Center, HorizontalOptions = LayoutOptions.End, WidthRequest = 120, HorizontalTextAlignment = TextAlignment.End, Style = (Style)Application.Current.Resources["PrimaryLabel"] };
@@ -310,7 +311,7 @@ public partial class S3BrowserPage : ContentPage
         // Layout grid - give the object pane more space than buckets
         var grid = new Grid
         {
-            RowDefinitions = new RowDefinitionCollection { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }, new RowDefinition { Height = GridLength.Auto } },
+            RowDefinitions = new RowDefinitionCollection { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }, new RowDefinition { Height = GridLength.Auto } },
             ColumnDefinitions = new ColumnDefinitionCollection { new ColumnDefinition { Width = new GridLength(0.35, GridUnitType.Star) }, new ColumnDefinition { Width = new GridLength(0.65, GridUnitType.Star) } },
             Padding = new Thickness(10)
         };
@@ -328,8 +329,8 @@ public partial class S3BrowserPage : ContentPage
 
         // Filter entry with overlay placeholder label
         // Use the app's DefaultEntry style so theming (text/background) is consistent and visible
-        _filterEntry = new Entry { Placeholder = "Filter objects...", HorizontalOptions = LayoutOptions.FillAndExpand, Style = (Style)Application.Current.Resources["DefaultEntry"], Margin = new Thickness(0,0,0,4) };
-        var filterOverlayLabel = new Label { Text = "[Enter Filter Text]", VerticalOptions = LayoutOptions.Center, Margin = new Thickness(6,0,0,4), IsVisible = true };
+        _filterEntry = new Entry { Placeholder = "Filter objects (wildcards: * ?)...", HorizontalOptions = LayoutOptions.FillAndExpand, Style = (Style)Application.Current.Resources["DefaultEntry"], Margin = new Thickness(0,0,0,4) };
+        var filterOverlayLabel = new Label { Text = "[Enter Filter Text, e.g. cfi*.csv]", VerticalOptions = LayoutOptions.Center, Margin = new Thickness(6,0,0,4), IsVisible = true };
         filterOverlayLabel.SetDynamicResource(Label.TextColorProperty, "SecondaryTextColor");
 
         void UpdateFilterOverlayVisibility()
@@ -371,9 +372,9 @@ public partial class S3BrowserPage : ContentPage
         var bucketsFrame = new Frame { Content = _bucketsView, Style = (Style)Application.Current.Resources["ItemFrame"] };
         var objectsFrame = new Frame { Content = _objectsView, Style = (Style)Application.Current.Resources["ItemFrame"] };
 
-        // Content row
-        grid.Add(bucketsFrame, 0, 2);
-        grid.Add(objectsFrame, 1, 2);
+        // Content row (separate row from the headers above, so the frames don't cover them)
+        grid.Add(bucketsFrame, 0, 3);
+        grid.Add(objectsFrame, 1, 3);
 
         var bottomStack = new StackLayout { Orientation = StackOrientation.Horizontal, Padding = new Thickness(10), Spacing = 10, HorizontalOptions = LayoutOptions.End };
         _downloadBtn.CornerRadius = 6; _uploadBtn.CornerRadius = 6; _renameBtn.CornerRadius = 6; _deleteBtn.CornerRadius = 6;
@@ -391,7 +392,7 @@ public partial class S3BrowserPage : ContentPage
         _renameBtn.Padding = new Thickness(0);
         _deleteBtn.Padding = new Thickness(0);
         bottomStack.Add(_downloadBtn); bottomStack.Add(_uploadBtn); bottomStack.Add(_renameBtn); bottomStack.Add(_deleteBtn);
-        grid.Add(bottomStack, 0, 3);
+        grid.Add(bottomStack, 0, 4);
         Grid.SetColumnSpan(bottomStack, 2);
 
         // Root layout allows overlaying popups
@@ -537,13 +538,27 @@ public partial class S3BrowserPage : ContentPage
             return;
         }
 
-        // Single file only: pick a filename and save it directly
+        // Single file only: prompt for a save location pre-populated with the object's file name
         if (files.Count == 1 && folders.Count == 0)
         {
             var selected = files[0];
-            var file = await FilePicker.PickAsync(new PickOptions { PickerTitle = "Save to" });
-            if (file == null) return;
-            var localPath = Path.Combine(FileSystem.AppDataDirectory, file.FileName);
+            var suggestedName = Path.GetFileName(selected.Key.Replace('/', Path.DirectorySeparatorChar));
+#if WINDOWS
+            string? localPath;
+            try
+            {
+                localPath = await Dnp.S3.Browser.UI.Platforms.Windows.WindowsFileSaveDialog.PickSaveFileAsync(suggestedName);
+            }
+            catch (System.Exception ex)
+            {
+                Log($"OnDownloadClicked: save file dialog failed: {ex}");
+                await DisplayAlertAsync("Download", $"Could not open the save dialog: {ex.Message}", "OK");
+                return;
+            }
+            if (string.IsNullOrEmpty(localPath)) return;
+#else
+            var localPath = Path.Combine(FileSystem.AppDataDirectory, suggestedName);
+#endif
             await _vm.DownloadObjectAsync(_vm.SelectedBucket.Name, selected.Key, localPath);
             await DisplayAlertAsync("Downloaded", $"Saved to {localPath}", "OK");
             return;
@@ -658,8 +673,8 @@ public partial class S3BrowserPage : ContentPage
         }
         else
         {
-            var t = text.ToLowerInvariant();
-            matches = items.Where(o => !string.IsNullOrEmpty(o.Key) && o.Key.ToLowerInvariant().Contains(t)).ToList();
+            var regex = WildcardToRegex(text);
+            matches = items.Where(o => !string.IsNullOrEmpty(o.Name) && regex.IsMatch(o.Name)).ToList();
         }
 
         // If no filter text, bind directly to the viewmodel's collection for fastest initial display
@@ -699,5 +714,25 @@ public partial class S3BrowserPage : ContentPage
         }
 
         Log($"RunFilterAsync: completed filtered count={_filteredObjects.Count}");
+    }
+
+    // Converts a filter pattern to a case-insensitive regex. Supports '*' (any run of characters)
+    // and '?' (any single character). Patterns without either wildcard fall back to substring
+    // ("contains") matching, so plain text filters keep working as before.
+    private static Regex WildcardToRegex(string pattern)
+    {
+        if (!pattern.Contains('*') && !pattern.Contains('?'))
+        {
+            pattern = "*" + pattern + "*";
+        }
+
+        var regexPattern = "^" + string.Concat(pattern.Select(c => c switch
+        {
+            '*' => ".*",
+            '?' => ".",
+            _ => Regex.Escape(c.ToString())
+        })) + "$";
+
+        return new Regex(regexPattern, RegexOptions.IgnoreCase);
     }
 }
